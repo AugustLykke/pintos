@@ -261,3 +261,4 @@ popa_ret:
 #### Boot-sector signature for BIOS inspection.
 	.org LOADER_SIG - LOADER_BASE
 	.word 0xaa55
+    
