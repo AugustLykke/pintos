@@ -28,6 +28,8 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -92,6 +94,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -311,6 +314,52 @@ thread_yield (void)
     list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
+  intr_set_level (old_level);
+}
+
+
+void
+thread_sleep(int64_t wake_up_time){
+  struct thread *cur = thread_current();
+  printf ("thread %s goes to sleep\n", cur->name);
+  enum intr_level old_level = intr_disable();
+  cur->time_to_wake_up = wake_up_time;
+  if (cur != idle_thread){
+    list_remove (&cur->elem);
+    list_push_back (&sleep_list, &cur->elem);
+    cur->status = THREAD_BLOCKED;
+  }
+  schedule();
+  intr_set_level (old_level);
+}
+
+void
+thread_wake(struct thread *t){
+   enum intr_level old_level = intr_disable();
+  if(timer_ticks() >= t->time_to_wake_up ){
+    //thread_unblock(t);
+    list_remove (&t->elem);
+    list_push_back (&ready_list, &t->elem);
+  }
+  intr_set_level (old_level);
+}
+
+void
+thread_wake_all ()
+{
+  enum intr_level old_level = intr_disable();
+  struct list_elem *e;
+  e = list_begin (&sleep_list);
+  while ( e != list_end (&sleep_list)){
+    struct thread *t = list_entry (e, struct thread, elem);
+    e = list_next(e);
+    if(timer_ticks() >= t->time_to_wake_up ){
+     printf("waking %s\n",t->name);
+     list_remove (&t->elem);
+     list_push_back (&ready_list, &t->elem);
+     t->status = THREAD_READY;
+    }
+  }
   intr_set_level (old_level);
 }
 
