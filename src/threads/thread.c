@@ -318,50 +318,44 @@ thread_yield (void)
 }
 
 
+bool
+timer_less_func (const struct list_elem *a, 
+                             const struct list_elem *b,
+                             void *aux){
+  struct thread *thread_a = list_entry(a, struct thread, elem);
+  struct thread *thread_b = list_entry(b, struct thread, elem);
+  return thread_a->time_to_wake_up < thread_b->time_to_wake_up;
+}
+
 void
 thread_sleep(int64_t wake_up_time){
   struct thread *cur = thread_current();
-  printf ("thread %s goes to sleep\n", cur->name);
+  //printf ("thread %s goes to sleep\n", cur->name);
   enum intr_level old_level = intr_disable();
   cur->time_to_wake_up = wake_up_time;
-  if (cur != idle_thread){
-    list_remove (&cur->elem);
-    list_push_back (&sleep_list, &cur->elem);
-    cur->status = THREAD_BLOCKED;
-  }
-  schedule();
+  list_insert_ordered (&sleep_list, &cur->elem, timer_less_func, NULL);
+  thread_block();
   intr_set_level (old_level);
 }
 
-void
-thread_wake(struct thread *t){
-   enum intr_level old_level = intr_disable();
-  if(timer_ticks() >= t->time_to_wake_up ){
-    //thread_unblock(t);
-    list_remove (&t->elem);
-    list_push_back (&ready_list, &t->elem);
-  }
-  intr_set_level (old_level);
-}
 
 void
-thread_wake_all ()
+thread_wake()
 {
   enum intr_level old_level = intr_disable();
-  struct list_elem *e;
-  e = list_begin (&sleep_list);
-  while ( e != list_end (&sleep_list)){
-    struct thread *t = list_entry (e, struct thread, elem);
-    e = list_next(e);
-    if(timer_ticks() >= t->time_to_wake_up ){
-     printf("waking %s\n",t->name);
-     list_remove (&t->elem);
-     list_push_back (&ready_list, &t->elem);
-     t->status = THREAD_READY;
+    struct list_elem *e = list_begin(&sleep_list);
+    struct thread *t;
+    while(e != list_end(&sleep_list)){
+      t = list_entry(e, struct thread, elem);
+      if(timer_ticks() < t->time_to_wake_up ) break;
+      e = list_next(e);
+      list_remove(&t->elem);
+      thread_unblock (t);
     }
-  }
   intr_set_level (old_level);
 }
+
+
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */

@@ -89,8 +89,9 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-    uint64_t time_to_wake_up;
 
+    uint64_t time_to_wake_up;
+    struct list_elem sleep_elem;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -128,8 +129,7 @@ void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
 void thread_sleep (int64_t wake_up_time);
-void thread_wake (struct thread *t);
-void thread_wake_all ();
+void thread_wake ();
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
