@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed-point.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -73,6 +75,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+int load_avg;
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -91,6 +95,7 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
+  load_avg = 0;
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
@@ -98,6 +103,7 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
+  initial_thread->nice = 0;
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
@@ -204,6 +210,9 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  if(thread_current ()->priority < t->priority)
+    thread_yield();
+
   return tid;
 }
 
@@ -223,6 +232,24 @@ thread_block (void)
   schedule ();
 }
 
+
+bool
+priority_less_func (const struct list_elem *a, 
+                             const struct list_elem *b,
+                             void *aux){
+  struct thread *thread_a = list_entry(a, struct thread, elem);
+  struct thread *thread_b = list_entry(b, struct thread, elem);
+  return thread_a->priority > thread_b->priority;
+}
+bool
+donor_less_func (const struct list_elem *a, 
+                             const struct list_elem *b,
+                             void *aux){
+  struct thread *thread_a = list_entry(a, struct thread, donor_elem);
+  struct thread *thread_b = list_entry(b, struct thread, donor_elem);
+  return thread_a->priority > thread_b->priority;
+}
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -240,7 +267,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  //list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, priority_less_func, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -311,7 +339,8 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    //list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, priority_less_func, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -374,11 +403,40 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+
+void
+thread_sort_ready_list ()
+{
+  list_sort (&ready_list, priority_less_func, NULL);
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  ASSERT (running_thread ()->status == THREAD_RUNNING);
+  struct thread *cur = thread_current ();
+  cur->base_priority = new_priority;
+  thread_set_donor_or_base (thread_current ());
+  struct thread *next_thread = list_entry (list_begin(&ready_list), struct thread, elem);
+  if(cur->priority < next_thread->priority)
+    thread_yield ();
+}
+
+
+void
+thread_set_donor_or_base(struct thread *t)
+{
+ int largest_donation = -1;
+ struct thread *biggest_donor;
+  if(!list_empty (&t->donor_list)){
+    biggest_donor = list_entry(list_begin(&t->donor_list) ,struct thread ,donor_elem);
+    largest_donation = biggest_donor->priority;
+  }
+  if(largest_donation < t->base_priority) 
+    t->priority = t->base_priority;
+  else
+    t->priority = largest_donation;
 }
 
 /* Returns the current thread's priority. */
@@ -390,9 +448,11 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int new_nice) 
 {
-  /* Not yet implemented. */
+  thread_current ()->nice = new_nice;
+  bsd_calculate_priority (thread_current(), NULL);
+  thread_yield();
 }
 
 /* Returns the current thread's nice value. */
@@ -400,7 +460,7 @@ int
 thread_get_nice (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
@@ -408,7 +468,8 @@ int
 thread_get_load_avg (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  return fp_to_int_round_nearest (100 * load_avg);
+
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -416,9 +477,43 @@ int
 thread_get_recent_cpu (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  return fp_to_int_round_nearest (mult_int_fp (100, thread_current ()->recent_cpu));
 }
 
+
+void
+bsd_calculate_priority (struct thread* thread, void *aux UNUSED)
+{
+  //priority = PRI_MAX - (recent_cpu / 4) - (nice * 2),
+  thread->priority = PRI_MAX - fp_to_int_round_nearest(sub_int_from_fp(
+                   (div_fp_by_int(thread->recent_cpu, 4)), (thread->nice * 2)));
+}
+ 
+
+void
+bsd_update_load_avg ()
+{
+  int ready_threads;
+  
+  if (thread_current () != idle_thread)
+    ready_threads = list_size (&ready_list) + 1;
+  else
+    ready_threads = list_size (&ready_list);
+
+  //load_avg = (59/60)*load_avg + (1/60)*ready_threads,
+  load_avg = add_fp_fp(mult_fp_fp (16110, load_avg), mult_int_fp (ready_threads, 273));
+}
+
+void
+bsd_update_recent_cpu (struct thread* thread, void *aux UNUSED)
+{
+  //recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice.
+  int load_avg_times_2 = mult_int_fp (2, load_avg);
+  int load_avg_times_2_plus_1 = add_fp_int (load_avg_times_2, 1);
+  int division = div_fp_by_fp (load_avg_times_2, load_avg_times_2_plus_1);
+  thread->recent_cpu = add_fp_int ( mult_fp_fp (division, thread->recent_cpu) , thread->nice);
+}
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -504,7 +599,15 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
+
+  if(!thread_mlfqs){
+    t->priority = priority;
+    t->base_priority = priority;
+  }else{
+    bsd_calculate_priority(t, NULL);
+  }
+
+  list_init (&t->donor_list);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
