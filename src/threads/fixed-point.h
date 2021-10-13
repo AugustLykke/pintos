@@ -1,7 +1,7 @@
 #ifndef THREADS_FIXED_POINT_H
 #define THREADS_FIXED_POINT_H
 
-#define FRACTION (1<<14)
+#define FRACTION 1<<14
 
 int int_to_fp (int integer);
 

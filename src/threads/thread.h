@@ -157,6 +157,8 @@ void thread_set_priority (int);
 void thread_set_donor_or_base(struct thread *);
 int thread_get_nice (void);
 void thread_set_nice (int);
+
+void thread_recent_cpu_inc (void);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 void bsd_calculate_priority (struct thread *, void *);

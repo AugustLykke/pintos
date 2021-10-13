@@ -96,6 +96,7 @@ timer_sleep (int64_t ticks)
  // while (timer_elapsed (start) < ticks) 
  //  thread_yield ();
 
+ if(ticks >= 0)
  thread_sleep(start + ticks);
 }
 
@@ -177,22 +178,24 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-  thread_wake();
 
 
   if(thread_mlfqs){
-    thread_current ()->recent_cpu = add_fp_int (thread_current()->recent_cpu, 1);
 
-    if(timer_ticks() % 4 == 0){
+    if(timer_ticks() % TIMER_FREQ == 0){
+      bsd_update_load_avg ();
+      thread_foreach (bsd_update_recent_cpu, NULL);
+    }
+
+    thread_recent_cpu_inc ();
+
+    if(timer_ticks() % 4 == 3){
      thread_foreach (bsd_calculate_priority, NULL);
     }
 
-    if(timer_ticks() % TIMER_FREQ == 0){
-      thread_foreach (bsd_update_recent_cpu, NULL);
-      bsd_update_load_avg ();
-    }
+
   }
-  
+  thread_wake();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

@@ -103,7 +103,7 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  initial_thread->nice = 0;
+
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
@@ -451,6 +451,7 @@ void
 thread_set_nice (int new_nice) 
 {
   thread_current ()->nice = new_nice;
+  bsd_update_recent_cpu (thread_current(), NULL);
   bsd_calculate_priority (thread_current(), NULL);
   thread_yield();
 }
@@ -459,7 +460,6 @@ thread_set_nice (int new_nice)
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
   return thread_current()->nice;
 }
 
@@ -467,7 +467,6 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
   return fp_to_int_round_nearest (100 * load_avg);
 
 }
@@ -476,8 +475,7 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return fp_to_int_round_nearest (mult_int_fp (100, thread_current ()->recent_cpu));
+  return fp_to_int_round_nearest (100 * thread_current ()->recent_cpu);
 }
 
 
@@ -485,8 +483,12 @@ void
 bsd_calculate_priority (struct thread* thread, void *aux UNUSED)
 {
   //priority = PRI_MAX - (recent_cpu / 4) - (nice * 2),
-  thread->priority = PRI_MAX - fp_to_int_round_nearest(sub_int_from_fp(
-                   (div_fp_by_int(thread->recent_cpu, 4)), (thread->nice * 2)));
+  thread->priority = PRI_MAX - fp_to_int_round_nearest(div_fp_by_int(thread->recent_cpu, 4)) - (thread->nice * 2) ;
+
+   if (thread->priority > PRI_MAX)
+    thread->priority = PRI_MAX;
+  else if (thread->priority < PRI_MIN)
+    thread->priority = PRI_MIN;
 }
  
 
@@ -501,7 +503,14 @@ bsd_update_load_avg ()
     ready_threads = list_size (&ready_list);
 
   //load_avg = (59/60)*load_avg + (1/60)*ready_threads,
-  load_avg = add_fp_fp(mult_fp_fp (16110, load_avg), mult_int_fp (ready_threads, 273));
+  load_avg = mult_fp_fp (16110, load_avg) + mult_int_fp (ready_threads, 273);
+}
+
+void
+thread_recent_cpu_inc ()
+{
+  if(thread_current() != idle_thread)
+    thread_current ()->recent_cpu = add_fp_int (thread_current()->recent_cpu, 1);
 }
 
 void
@@ -613,6 +622,16 @@ init_thread (struct thread *t, const char *name, int priority)
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+
+  if (thread_mlfqs){
+    if (t == initial_thread){
+      t->recent_cpu = 0;
+      t->nice = 0;
+    }else{
+      t->recent_cpu =  thread_current()->recent_cpu;
+      t->nice = thread_current()->nice;
+    }
+  }
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
