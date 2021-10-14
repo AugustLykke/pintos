@@ -189,8 +189,9 @@ timer_interrupt (struct intr_frame *args UNUSED)
 
     thread_recent_cpu_inc ();
 
-    if(timer_ticks() % 4 == 3){
+    if(timer_ticks() % 4 == 0){
      thread_foreach (bsd_calculate_priority, NULL);
+     thread_sort_ready_list();
     }
 
 
