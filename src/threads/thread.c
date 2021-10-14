@@ -427,6 +427,8 @@ thread_set_priority (int new_priority)
 void
 thread_set_donor_or_base(struct thread *t)
 {
+if(thread_mlfqs)
+  return;
  int largest_donation = -1;
  struct thread *biggest_donor;
   if(!list_empty (&t->donor_list)){
@@ -483,12 +485,13 @@ void
 bsd_calculate_priority (struct thread* thread, void *aux UNUSED)
 {
   //priority = PRI_MAX - (recent_cpu / 4) - (nice * 2),
-  thread->priority = PRI_MAX - fp_to_int_round_nearest(div_fp_by_int(thread->recent_cpu, 4)) - (thread->nice * 2) ;
+  thread->priority = PRI_MAX - fp_to_int_round_nearest(div_fp_by_int(thread->recent_cpu, 4)) - (thread->nice * 2);
 
    if (thread->priority > PRI_MAX)
     thread->priority = PRI_MAX;
   else if (thread->priority < PRI_MIN)
     thread->priority = PRI_MIN;
+
 }
  
 
