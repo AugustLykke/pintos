@@ -87,26 +87,16 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-
-    int base_priority;                  /* Base priority given by set_priority*/
-    int priority;                       /* The effective priority taking account for donations */
-    struct list donor_list;
-    struct list_elem donor_elem;
-    struct lock *wanted_lock;
-
-    int nice;
-    int recent_cpu;
-
+    int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 
-    uint64_t time_to_wake_up;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-#ifdef USERPROG
+//#ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-#endif
+//#endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -122,12 +112,6 @@ void thread_start (void);
 
 void thread_tick (void);
 void thread_print_stats (void);
-bool priority_less_func (const struct list_elem *a, 
-                             const struct list_elem *b,
-                             void *aux);
-bool donor_less_func (const struct list_elem *a, 
-                             const struct list_elem *b,
-                             void *aux);
 
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
@@ -136,32 +120,22 @@ void thread_block (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
-static struct thread *running_thread (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
-void thread_sleep (int64_t);
-void thread_wake ();
-
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
 
-void thread_sort_ready_list (void);
-void thread_give_donation (struct thread *, struct thread *);
 int thread_get_priority (void);
 void thread_set_priority (int);
-void thread_set_donor_or_base(struct thread *);
+
 int thread_get_nice (void);
 void thread_set_nice (int);
-
-void thread_recent_cpu_inc (void);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-void bsd_calculate_priority (struct thread *, void *);
-void bsd_update_load_avg ();
-void bsd_update_recent_cpu (struct thread *, void *);
+
 #endif /* threads/thread.h */
