@@ -2,6 +2,11 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+struct arguments
+{
+	char **argv;
+	int argc;	
+};
 
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
