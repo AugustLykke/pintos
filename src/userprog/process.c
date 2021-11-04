@@ -74,8 +74,6 @@ start_process (void *args_)
   struct intr_frame if_;
   bool success;
 
-	for(int i = 0; i < args->argc; i++)
-					printf("%s\n", args->argv[i]);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -457,21 +455,70 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (struct arguments* args, void **esp) 
 {
-	for(int i = 0; i < args->argc; i++)
-					printf("%s", args->argv[i]);
   uint8_t *kpage;
   bool success = false;
+
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE - 12;
+      if (success){
+        *esp = PHYS_BASE;
+				push_args_to_stack(args, esp);
+			}
       else
         palloc_free_page (kpage);
     }
+
   return success;
+}
+
+void
+push_args_to_stack (struct arguments* args, void **esp)
+{
+	 char **arg_addrs = (char**)malloc(sizeof(char*) * (args->argc + 1));
+	 arg_addrs[args->argc] = NULL;
+	 int totalBytes = 0;	
+	 
+	//Argument names
+	 for(int i = args->argc - 1; i >= 0; i--)
+			{
+				size_t strSize = strlen(args->argv[i]) + 1;
+				*esp -= strSize;
+				arg_addrs[i] = (char*) *esp;
+				strlcpy(*esp, args->argv[i], strSize);
+				totalBytes += strSize;
+			}	
+
+	//Word Allign	
+	 int word_allign = (uintptr_t)*esp%4; 
+	 *esp -= word_allign;
+	 totalBytes += word_allign;
+
+	// Pointers to argument names	
+	 uint32_t *arg_ptr = (uint32_t*)*esp;
+	 for(int i = args->argc; i >= 0; i--)
+	 	{
+			arg_ptr -= 1;
+			*arg_ptr = arg_addrs[i];
+			totalBytes += sizeof(char*);
+	  }	 
+
+	//push pointer to argv[0], push argc and fake return pointer
+	 uint32_t *argv_ptr = arg_ptr;
+	 arg_ptr -=1;
+	 *arg_ptr = argv_ptr;
+	 arg_ptr -=1;
+	 *arg_ptr = args->argc;
+	 arg_ptr -=1;
+	 *arg_ptr = NULL;  
+	
+	 *esp = arg_ptr;
+	 free(arg_addrs);
+
+	 //totalBytes += 12;
+	 //hex_dump((uintptr_t)arg_ptr, arg_ptr ,totalBytes, true);
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
