@@ -82,11 +82,11 @@ start_process (void *args_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (args, &if_.eip, &if_.esp);
 
-  /* If load failed, quit. */
 	palloc_free_page (args->argv);
-  palloc_free_page (file_name);
+	palloc_free_page (file_name);
 	free(args);
 
+  /* If load failed, quit. */
   if (!success) 
     thread_exit ();
 
