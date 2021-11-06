@@ -282,9 +282,9 @@ static void
 run_task (char **argv)
 {
   const char *task = argv[1];
-  
   printf ("Executing '%s':\n", task);
 #ifdef USERPROG
+  thread_current()->process = make_main_process();
   process_wait (process_execute (task));
 #else
   run_test (task);

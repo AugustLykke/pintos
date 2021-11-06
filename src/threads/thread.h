@@ -3,7 +3,8 @@
 
 #include <debug.h>
 #include <list.h>
-#include <stdint.h>
+#include <stdint.h> 
+#include <threads/synch.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +24,25 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+enum status
+{
+  STATUS_ERROR = -1,
+  STATUS_SUCCES,
+  STATUS_RUNNING
+};
+
+
+struct process
+{
+  tid_t pid;
+  struct process* parent;
+  struct list child_list;
+  struct list_elem child_elem;
+  struct semaphore sema_wait; 
+  tid_t waiting_for;
+  enum status status;
+};
 
 /* A kernel thread or user process.
 
@@ -90,17 +110,20 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct process *process;
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

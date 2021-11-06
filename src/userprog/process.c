@@ -22,6 +22,42 @@
 static thread_func start_process NO_RETURN;
 static bool load (struct arguments*, void (**eip) (void), void **esp);
 
+struct process*
+get_current_process()
+{
+  return thread_current()->process;  
+}
+
+
+
+//set up process structure to the thread  
+
+struct process*
+make_process_from_parent(struct process *parent)
+{
+  struct process *process = (struct process*)malloc(sizeof(struct process));
+  process->parent = parent;
+  list_init(&process->child_list);
+  process->status = STATUS_RUNNING;
+  sema_init(&process->sema_wait, 0);
+  process->waiting_for = -1;
+  return process;
+}
+
+struct process*
+make_process()
+{
+  make_process_from_parent(thread_current()->process);
+}
+
+struct process*
+make_main_process()
+{
+  make_process_from_parent(NULL);
+}
+
+
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -29,6 +65,7 @@ static bool load (struct arguments*, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  struct process *proc = make_process();
   char *fn_copy;
   char *save_ptr;
 	char *tmp;
@@ -36,6 +73,7 @@ process_execute (const char *file_name)
 	args = (struct arguments*)malloc(sizeof(struct arguments));
 	args->argv = (char**)palloc_get_page (0);
 	args->argc = 0;
+  args->proc = proc;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -53,14 +91,19 @@ process_execute (const char *file_name)
 		tmp = strtok_r (NULL," ", &save_ptr);  	
 	}	
 
+  list_push_front(&proc->parent->child_list, &proc->child_elem); 
 
   /* Create a new thread to execute FILE_NAME. */
  	tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR){
 		palloc_free_page (args->argv);
 		free (args);
+    free (proc);
     palloc_free_page (fn_copy); 
-	}
+	}else
+    proc->pid = tid;
+  
+   
   return tid;
 }
 
@@ -73,7 +116,8 @@ start_process (void *args_)
   char *file_name = args->argv[0];
   struct intr_frame if_;
   bool success;
-
+  
+  thread_current()->process = args->proc;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -110,9 +154,23 @@ start_process (void *args_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-while(1);
+
+  struct list_elem *e;
+  struct process *cur_proc = get_current_process();
+  struct list *child_list = &cur_proc->child_list;
+  for ( e = list_begin (child_list); e != list_end(child_list);
+        e = list_next (e)){
+   struct process *child = list_entry (e, struct process, child_elem); 
+   if(child->pid == child_tid){
+    if(child->status == 1)
+      cur_proc->waiting_for = child_tid;
+      sema_down(&cur_proc->sema_wait);
+      cur_proc->waiting_for = -1;
+    }
+    return child->status;
+  }
   return -1;
 }
 
@@ -120,8 +178,28 @@ while(1);
 void
 process_exit (void)
 {
-  struct thread *cur = thread_current ();
+  struct thread *cur = thread_current();
+  struct process *cur_proc = get_current_process();
+  struct list *child_list = &cur_proc->child_list;
+  struct list_elem *e;
+  
+  if(cur_proc->parent->waiting_for == cur_proc->pid)
+    sema_up(&cur_proc->parent->sema_wait);
+
+  //free all dead childs, and set their parent to NULL
+  for ( e = list_begin (child_list); e != list_end(child_list);
+        e = list_next (e)){
+    struct process *child = list_entry (e, struct process, child_elem); 
+    child->parent = NULL;
+    if(child->status <1 )
+      free(child);
+  }
+
+  if(cur_proc->parent->status == NULL)
+    free(cur_proc);
+  
   uint32_t *pd;
+  
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -517,7 +595,7 @@ push_args_to_stack (struct arguments* args, void **esp)
 	 *esp = arg_ptr;
 	 free(arg_addrs);
 
-	 //totalBytes += 12;
+	 totalBytes += 12;
 	 //hex_dump((uintptr_t)arg_ptr, arg_ptr ,totalBytes, true);
 }
 
