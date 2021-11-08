@@ -33,6 +33,7 @@ enum status
 };
 
 
+/*
 struct process
 {
   tid_t pid;
@@ -42,7 +43,9 @@ struct process
   struct semaphore sema_wait; 
   tid_t waiting_for;
   enum status status;
+  struct list open_files;
 };
+*/
 
 /* A kernel thread or user process.
 

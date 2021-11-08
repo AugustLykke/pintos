@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -38,9 +39,13 @@ make_process_from_parent(struct process *parent)
   struct process *process = (struct process*)malloc(sizeof(struct process));
   process->parent = parent;
   list_init(&process->child_list);
+  list_init(&process->file_list);
   process->status = STATUS_RUNNING;
   sema_init(&process->sema_wait, 0);
   process->waiting_for = -1;
+  process->next_fd = 2;
+  process->exec_success = 0;
+  process->been_waited = 0;
   return process;
 }
 
@@ -130,9 +135,15 @@ start_process (void *args_)
 	palloc_free_page (file_name);
 	free(args);
 
+  struct process *cur_proc = get_current_process();
+  if(cur_proc->parent->exec_success == -1)
+    sema_up(&cur_proc->parent->sema_wait);
+  cur_proc->parent->exec_success = success;
+  
   /* If load failed, quit. */
   if (!success) 
     thread_exit ();
+
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -164,12 +175,14 @@ process_wait (tid_t child_tid)
         e = list_next (e)){
    struct process *child = list_entry (e, struct process, child_elem); 
    if(child->pid == child_tid){
-    if(child->status == 1)
+    if(!child->been_waited){
       cur_proc->waiting_for = child_tid;
       sema_down(&cur_proc->sema_wait);
       cur_proc->waiting_for = -1;
+      child->been_waited = true;
+      return child->status;
     }
-    return child->status;
+   }
   }
   return -1;
 }
@@ -181,23 +194,41 @@ process_exit (void)
   struct thread *cur = thread_current();
   struct process *cur_proc = get_current_process();
   struct list *child_list = &cur_proc->child_list;
+  struct list *file_list = &cur_proc->file_list;
   struct list_elem *e;
-  
+ 
+
   if(cur_proc->parent->waiting_for == cur_proc->pid)
     sema_up(&cur_proc->parent->sema_wait);
+  
 
   //free all dead childs, and set their parent to NULL
-  for ( e = list_begin (child_list); e != list_end(child_list);
-        e = list_next (e)){
+  e = list_begin (child_list);
+  while(e != list_end(child_list))
+  {
     struct process *child = list_entry (e, struct process, child_elem); 
+    e = list_next(e);
     child->parent = NULL;
-    if(child->status <1 )
+    if(child->status < 1 )
       free(child);
   }
+ 
+  //close all open files
+  e = list_begin (file_list); 
+  while(e != list_end(file_list))
+  {
+    struct open_file *of = list_entry (e, struct open_file, elem); 
+    e = list_next (e);
+    file_close(of->file);
+    free(of);
+  }
+    
 
-  if(cur_proc->parent->status == NULL)
+  if(cur_proc->parent == NULL)
     free(cur_proc);
   
+  file_close(cur_proc->exec_file);
+
   uint32_t *pd;
   
 
@@ -234,7 +265,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -413,13 +444,19 @@ load (struct arguments *args, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
+  
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  if(!success)
+    file_close (file);
+  else{
+    args->proc->exec_file = file;
+    file_deny_write(file);
+  }
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);
@@ -617,4 +654,20 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+struct open_file *
+find_open_file (int fd)
+{
+  struct list_elem *e;
+  struct process *cur_proc = get_current_process();
+  struct list *file_list = &cur_proc->file_list;
+  for ( e = list_begin (file_list); e != list_end(file_list);
+        e = list_next (e))
+  {
+    struct open_file *of = list_entry (e, struct open_file, elem); 
+    if (of->fd == fd)
+      return of;
+  }
+  return NULL;
 }
