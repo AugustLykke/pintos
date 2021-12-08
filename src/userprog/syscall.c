@@ -124,6 +124,7 @@ sys_create(void * esp)
 bool
 sys_remove(void *esp)
 {
+
   char *file = *(char **)(esp + 4);
   check_user_pointer(file);
   lock_acquire(&filesys_lock);
