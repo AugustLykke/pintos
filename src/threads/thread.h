@@ -3,8 +3,7 @@
 
 #include <debug.h>
 #include <list.h>
-#include <stdint.h> 
-#include <threads/synch.h>
+#include <stdint.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -24,28 +23,6 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
-
-enum status
-{
-  STATUS_ERROR = -1,
-  STATUS_SUCCES,
-  STATUS_RUNNING
-};
-
-
-/*
-struct process
-{
-  tid_t pid;
-  struct process* parent;
-  struct list child_list;
-  struct list_elem child_elem;
-  struct semaphore sema_wait; 
-  tid_t waiting_for;
-  enum status status;
-  struct list open_files;
-};
-*/
 
 /* A kernel thread or user process.
 
@@ -113,21 +90,26 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 
-
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct process *process;
-    struct hash sup_page_table;
+
+    struct list_elem p_elem;            /* List element for process child-parent relationship */
+    struct thread *parent;
+    struct list child_list;
+
+    struct list signal_list;
+    struct list fd_table;
+
+    struct file *current_file;
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
-
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -164,5 +146,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread* get_thread_from_tid(tid_t tid);
 
 #endif /* threads/thread.h */
